@@ -1,5 +1,6 @@
 #include <stdio.h> //for printf
 #include <stdint.h> //for uint32_t
+#include <time.h> //for clock_gettime, high precision timer
 
 /* for now, using uint32_t everywhere, we may overflow. If so, 
    must attempt to use floats for performance reasons. uint64_t is unusably 
@@ -17,11 +18,13 @@ void multiples(uint32_t step, uint32_t *array, uint32_t n, uint32_t *next_prime)
     //ensure extra loop runs if n/cpus has remainder. Can be tuned to ensure
     //at least sqrt(n) thread executions by changing condition
     for( id = blockIdx.x * blockDim.x + threadIdx.x;
-            id * (n/cpus) < n;
+            (id * (n/cpus)) < n;
             id += cpus)
     {
-
         start = id * (n/cpus); //starts at 0, increments by n/cpus
+        if(start > n){
+            break;
+        }
         if (start < (step*step)){ //ensure we start at n^2, fixes 2, saves work
             start = step*step;
         }
@@ -32,7 +35,7 @@ void multiples(uint32_t step, uint32_t *array, uint32_t n, uint32_t *next_prime)
             end = n;
         }
         if(start >= end){
-            return; //make sure extra threads exit instead of working
+            break; //make sure extra threads exit instead of working
         }
         end_mult = end/step;
 
@@ -42,24 +45,37 @@ void multiples(uint32_t step, uint32_t *array, uint32_t n, uint32_t *next_prime)
         for(int i = start_mult; i<=end_mult; i++){
             array[step * i] = 1;
         }
-        __syncthreads(); //barrier until all threads done
-        int j = step+1;
+    }
+    __syncthreads(); //barrier until all threads done
+    if(threadIdx.x == 0){ //only valid within a block
+        uint32_t j = step+1;
         for(; j<n; j++){
             if(array[j]==0){
+                //atomicMin(next_prime, j);
                 *next_prime = j;//write host memory
-                break;
+                return;
             }
         }
-        if(j == n){
-            *next_prime = 0;
-        }
-
-
+        *next_prime = n;
     }
 }
 
+timespec time_diff(timespec start, timespec end)
+{
+    timespec temp;
+    if ((end.tv_nsec-start.tv_nsec)<0) {
+        temp.tv_sec = end.tv_sec-start.tv_sec-1;
+        temp.tv_nsec = 1000000000+end.tv_nsec-start.tv_nsec;
+    } else {
+        temp.tv_sec = end.tv_sec-start.tv_sec;
+        temp.tv_nsec = end.tv_nsec-start.tv_nsec;
+    }
+    return temp;
+}
+
 int main(){
-    uint32_t n = 1<<10; //find all primes upto and including this number
+//    uint32_t n = 1<<28; //find all primes upto and including this number
+    uint32_t n = 9999992;
     uint32_t *prime_array = (uint32_t *)calloc(n , sizeof(uint32_t)); //allocate and zero
     uint32_t *next_prime = (uint32_t *)malloc(sizeof(uint32_t)); //allocate index for signalling
     cudaMallocHost(&next_prime, sizeof(uint32_t));
@@ -70,13 +86,17 @@ int main(){
     cudaMemcpy(d_array, prime_array, n * sizeof(uint32_t), cudaMemcpyHostToDevice);
 
 
+    struct timespec start, end, difference;
+    clock_gettime(CLOCK_MONOTONIC, &start);
     for(int loop = 2; loop <= sqrt(n); loop = *next_prime){ //TODO careful of sqrt here, check for primes only
-//    while(*next_prime !=0){
         printf("starting loop for multiples of %d\n", loop);
-        multiples<<<1,1>>>(loop,d_array,n,next_prime);
+        multiples<<<1,192>>>(loop,d_array,n,next_prime);
         cudaDeviceSynchronize();
-        printf("next prime is %d\n", *next_prime);
+    //    printf("next prime is %d\n", *next_prime);
     }
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    difference = time_diff(start,end);
+    printf("%d %ld\n", difference.tv_sec, difference.tv_nsec);
 
     cudaMemcpy(prime_array, d_array, n * sizeof(uint32_t), cudaMemcpyDeviceToHost);
 
