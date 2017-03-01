@@ -6,26 +6,35 @@
    slow. We must use multiplication instead of repeated addition to limit
    error accumulation, but floats should be workable. */
 __global__
-void multiples(uint32_t step, uint32_t *prime_array, uint32_t n){
+void multiples(uint32_t step, uint32_t *array, uint32_t n){
     /*this function should compute all multiples of step, and mark 
     indices of prime_array at those points. This function should use
     threadID to divide the problem set */
+    uint32_t cpus, id, start, start_mult, end, end_mult;
 
-    uint32_t cpus = blockDim.x * gridDim.x; //total number of threads
+    cpus = blockDim.x * gridDim.x; //total number of threads
+
     //compute absolute 1 dimensional thead ID
-    uint32_t id = blockIdx.x * blockDim.x + threadIdx.x;
+    id = blockIdx.x * blockDim.x + threadIdx.x;
 
-    uint32_t start = id * (n/cpus); //starts at 0, increments by n/cpus
-    uint32_t start_mult = start/step;
-    uint32_t end = (id + 1) * (n/cpus) - 1; //ensure range has no overlap
-    uint32_t end_mult = end/step;
-    //TODO check for end>n
+    start = id * (n/cpus); //starts at 0, increments by n/cpus
+    if (start < (step*step)){ //ensure we start at n^2, fixes 2, saves work
+        start = step*step;
+    }
+    start_mult = start/step;
+
+    end = (id + 1) * (n/cpus) - 1; //ensure range has no overlap
+    if(end > n){ //avoid overflow
+        end = n;
+    }
+    end_mult = end/step;
+
+//    printf("thread id %d, num cpus %d, start %d, end %d\n"
+//           , id, cpus, start, end); //debug
 
     for(int i = start_mult; i<=end_mult; i++){
-        prime_array[step * i] = 1;
+        array[step * i] = 1;
     }
-
-
 
 
 }
@@ -40,25 +49,21 @@ int main(){
     cudaMemcpy(d_array, prime_array, n * sizeof(uint32_t), cudaMemcpyHostToDevice);
 
     for(int loop = 2; loop <= sqrt(n); loop++){ //TODO careful of sqrt here, check for primes only
-        multiples<<<1,1>>>(loop,d_array,n);
+        multiples<<<1,2>>>(loop,d_array,n);
+        cudaDeviceSynchronize();
     }
 
     cudaMemcpy(prime_array, d_array, n * sizeof(uint32_t), cudaMemcpyDeviceToHost);
 
-
-
-
-
-
-
-
+    FILE *output_file = fopen("output.txt", "w+");
+    
     for(int i=0; i<n; i++){
         if(prime_array[i] == 0){
-            printf("%d ",i);
+            fprintf(output_file, "%d ",i);
         }
     }
 
-
+    fclose(output_file);
     free(prime_array); //clean up
     return 0;
 }
