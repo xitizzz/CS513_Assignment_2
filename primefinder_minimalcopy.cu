@@ -14,29 +14,37 @@ void multiples(uint32_t step, uint32_t *array, uint32_t n){
 
     cpus = blockDim.x * gridDim.x; //total number of threads
 
-    //compute absolute 1 dimensional thead ID
-    id = blockIdx.x * blockDim.x + threadIdx.x;
+    //ensure extra loop runs if n/cpus has remainder. Can be tuned to ensure
+    //at least sqrt(n) thread executions by changing condition
+    for( id = blockIdx.x * blockDim.x + threadIdx.x;
+            id * (n/cpus) < n;
+            id += cpus)
+    {
 
-    start = id * (n/cpus); //starts at 0, increments by n/cpus
-    if (start < (step*step)){ //ensure we start at n^2, fixes 2, saves work
-        start = step*step;
+        start = id * (n/cpus); //starts at 0, increments by n/cpus
+        if (start < (step*step)){ //ensure we start at n^2, fixes 2, saves work
+            start = step*step;
+        }
+        start_mult = start/step;
+
+        end = (id + 1) * (n/cpus) - 1; //ensure range has no overlap
+        if(end > n){ //avoid overflow
+            end = n;
+        }
+        if(start >= end){
+            return; //make sure extra threads exit instead of working
+        }
+        end_mult = end/step;
+
+        printf("thread id %d, num cpus %d, start %d, end %d\n"
+               , id, cpus, start, end); //debug
+
+        for(int i = start_mult; i<=end_mult; i++){
+            array[step * i] = 1;
+        }
+
+
     }
-    start_mult = start/step;
-
-    end = (id + 1) * (n/cpus) - 1; //ensure range has no overlap
-    if(end > n){ //avoid overflow
-        end = n;
-    }
-    end_mult = end/step;
-
-//    printf("thread id %d, num cpus %d, start %d, end %d\n"
-//           , id, cpus, start, end); //debug
-
-    for(int i = start_mult; i<=end_mult; i++){
-        array[step * i] = 1;
-    }
-
-
 }
 
 
@@ -49,7 +57,7 @@ int main(){
     cudaMemcpy(d_array, prime_array, n * sizeof(uint32_t), cudaMemcpyHostToDevice);
 
     for(int loop = 2; loop <= sqrt(n); loop++){ //TODO careful of sqrt here, check for primes only
-        multiples<<<1,2>>>(loop,d_array,n);
+        multiples<<<1,32>>>(loop,d_array,n);
         cudaDeviceSynchronize();
     }
 
@@ -57,11 +65,12 @@ int main(){
 
     FILE *output_file = fopen("output.txt", "w+");
     
-    for(int i=0; i<n; i++){
+    for(int i=1; i<n; i++){
         if(prime_array[i] == 0){
             fprintf(output_file, "%d ",i);
         }
     }
+    fprintf(output_file, "\n");
 
     fclose(output_file);
     free(prime_array); //clean up
