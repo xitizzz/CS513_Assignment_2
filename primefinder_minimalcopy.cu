@@ -82,7 +82,13 @@ int main(int arc, char *argv[]){
     //    uint32_t n = 1<<28; //find all primes upto and including this number
     //    uint32_t n = 1<<12; //find all primes upto and including this number
         uint32_t n = strtol(argv[1], NULL, 10); //take n from input, conver to long
-        int threads = 512;
+        //int threads = 512;
+        int threads = 1;
+        if(512*512 > n){
+            threads = sqrt(n);
+        }else{
+            threads = 512;
+        }
         uint32_t *prime_array = (uint32_t *)calloc(n , sizeof(uint32_t)); //allocate and zero
         uint32_t *next_prime; //= (uint32_t *)malloc(sizeof(uint32_t)); //allocate index for signalling
         cudaMallocHost(&next_prime, sizeof(uint32_t));
